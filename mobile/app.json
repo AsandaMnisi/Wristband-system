@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Tactical HUD Wristband",
+    "slug": "wristband-hud",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0A0A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSMotionUsageDescription": "This app uses motion sensors to track steps for miner safety monitoring."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A0A"
+      },
+      "permissions": ["ACTIVITY_RECOGNITION"]
+    },
+    "plugins": [
+      "expo-sensors"
+    ],
+    "extra": {
+      "apiUrl": ""
+    }
+  }
+}
