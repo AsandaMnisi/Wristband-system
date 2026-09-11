@@ -2,11 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const POLL_INTERVAL_MS = 3000;
 
-// ─── Local rule-based mock (used when backend is unavailable) ────────────────
-function localRuleCheck({ heart_rate, skin_temp }) {
+function localRuleCheck({ heart_rate, breathing_rate, skin_temp }) {
   const anomalyReasons = [];
-  if (heart_rate > 130)  anomalyReasons.push(`HR ${heart_rate} bpm exceeds 130 bpm limit`);
-  if (skin_temp  > 38.5) anomalyReasons.push(`Skin temp ${skin_temp}°C exceeds 38.5°C limit`);
+  if (heart_rate > 130) anomalyReasons.push(`HR ${heart_rate} bpm exceeds 130 bpm limit`);
+  if (skin_temp > 38.5) anomalyReasons.push(`Skin temp ${skin_temp}°C exceeds 38.5°C limit`);
   const is_anomaly = anomalyReasons.length > 0;
   return {
     is_anomaly,
@@ -16,86 +15,126 @@ function localRuleCheck({ heart_rate, skin_temp }) {
   };
 }
 
-/**
- * useTelemetrySync
- *
- * Sends a telemetry payload to the backend every POLL_INTERVAL_MS.
- * Falls back to local rule-check when the backend is unreachable.
- *
- * @param {object}  vitals         – { heart_rate, breathing_rate, skin_temp }
- * @param {number}  totalSteps     – raw pedometer step count
- * @param {string}  minerId        – miner identifier
- * @param {string}  apiUrl         – base URL of backend (empty → always mock)
- *
- * Returns:
- *   serverResponse – { is_anomaly, anomaly_reason, calculated_shift_steps, source }
- *   isSyncing      – bool, true while a request is in-flight
- *   lastSyncAt     – Date | null
- */
-export function useTelemetrySync(vitals, totalSteps, minerId = 'MINER_001', apiUrl = '') {
+export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLevel, batteryCharging, rfidWorkerId, isPoweredOn, bandRemoved, forceConnectionStatus) {
   const [serverResponse, setServerResponse] = useState({
-    is_anomaly:            false,
-    anomaly_reason:        null,
+    is_anomaly: false,
+    anomaly_reason: null,
     calculated_shift_steps: 0,
-    source:                'idle',
+    source: 'idle',
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
 
-  const vitalsRef   = useRef(vitals);
-  const stepsRef    = useRef(totalSteps);
+  const vitalsRef = useRef(vitals);
+  const stepsRef = useRef(totalSteps);
+  const batteryRef = useRef(batteryLevel);
+  const chargingRef = useRef(batteryCharging);
+  const rfidRef = useRef(rfidWorkerId);
+  const poweredRef = useRef(isPoweredOn);
+  const bandRemovedRef = useRef(bandRemoved);
   const intervalRef = useRef(null);
 
-  // Keep refs fresh without re-scheduling the interval
   useEffect(() => { vitalsRef.current = vitals; }, [vitals]);
-  useEffect(() => { stepsRef.current  = totalSteps; }, [totalSteps]);
+  useEffect(() => { stepsRef.current = totalSteps; }, [totalSteps]);
+  useEffect(() => { batteryRef.current = batteryLevel; }, [batteryLevel]);
+  useEffect(() => { chargingRef.current = batteryCharging; }, [batteryCharging]);
+  useEffect(() => { rfidRef.current = rfidWorkerId; }, [rfidWorkerId]);
+  useEffect(() => { poweredRef.current = isPoweredOn; }, [isPoweredOn]);
+  useEffect(() => { bandRemovedRef.current = bandRemoved; }, [bandRemoved]);
 
   const sync = useCallback(async () => {
+    if (!poweredRef.current) {
+      setConnectionStatus('disconnected');
+      return;
+    }
+
+    if (forceConnectionStatus && forceConnectionStatus !== 'auto') {
+      setConnectionStatus(forceConnectionStatus);
+      setIsSyncing(false);
+      return;
+    }
+
+    setIsSyncing(true);
+    setConnectionStatus('connecting');
+
     const payload = {
-      miner_id:          minerId,
+      miner_id: rfidRef.current || minerId,
       total_watch_steps: stepsRef.current,
-      heart_rate:        vitalsRef.current.heart_rate,
-      breathing_rate:    vitalsRef.current.breathing_rate,
-      skin_temp:         vitalsRef.current.skin_temp,
+      heart_rate: vitalsRef.current.heart_rate,
+      breathing_rate: vitalsRef.current.breathing_rate,
+      skin_temp: vitalsRef.current.skin_temp,
+      battery_level: batteryRef.current,
+      battery_charging: chargingRef.current,
+      is_anomaly: false,
+      anomaly_reason: null,
+      band_removed: bandRemovedRef.current,
+      connection_status: 'connected',
+      timestamp: new Date().toISOString(),
+      location: {
+        latitude: 40.7128 + (Math.random() - 0.5) * 0.01,
+        longitude: -74.0060 + (Math.random() - 0.5) * 0.01,
+        accuracy: 5,
+      },
+      device_id: `${minerId}_wristband_001`,
+      firmware_version: '2.1.0',
     };
 
-    // ── Try real backend ──────────────────────────────────────────────────
-    if (apiUrl) {
-      setIsSyncing(true);
-      try {
+    if (bandRemovedRef.current) {
+      payload.is_anomaly = true;
+      payload.anomaly_reason = 'Band removed - unable to measure vitals';
+      payload.band_removed = true;
+    } else if (vitalsRef.current.heart_rate > 130 || vitalsRef.current.skin_temp > 38.5) {
+      payload.is_anomaly = true;
+      payload.anomaly_reason = localRuleCheck(vitalsRef.current).anomaly_reason;
+    }
+
+    try {
+      if (apiUrl) {
         const res = await fetch(`${apiUrl}/api/v1/telemetry`, {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
-          signal:  AbortSignal.timeout(4000),
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(4000),
         });
 
         if (res.ok) {
           const data = await res.json();
           setServerResponse({ ...data, source: 'server' });
           setLastSyncAt(new Date());
+          setConnectionStatus('connected');
           setIsSyncing(false);
           return;
         }
-      } catch {
-        // Fall through to mock
       }
-      setIsSyncing(false);
+    } catch {
+      // Fallback to mock
     }
 
-    // ── Local mock fallback ──────────────────────────────────────────────
-    const mockResult = localRuleCheck(payload);
-    setServerResponse(mockResult);
+    const mockResult = localRuleCheck(vitalsRef.current);
+    setServerResponse({
+      ...mockResult,
+      source: 'mock',
+      calculated_shift_steps: 0,
+    });
     setLastSyncAt(new Date());
-  }, [apiUrl, minerId]);
+    setConnectionStatus('connected');
+    setIsSyncing(false);
+  }, [apiUrl, minerId, forceConnectionStatus]);
 
   useEffect(() => {
-    // Fire immediately then every 3 s
+    if (!isPoweredOn) {
+      setConnectionStatus('disconnected');
+      return;
+    }
     sync();
-    intervalRef.current = setInterval(sync, POLL_INTERVAL_MS);
-    return () => clearInterval(intervalRef.current);
-  }, [sync]);
+    if (!forceConnectionStatus || forceConnectionStatus === 'auto') {
+      intervalRef.current = setInterval(sync, POLL_INTERVAL_MS);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [sync, isPoweredOn, forceConnectionStatus]);
 
-  return { serverResponse, isSyncing, lastSyncAt };
+  return { serverResponse, isSyncing, lastSyncAt, connectionStatus };
 }
-
