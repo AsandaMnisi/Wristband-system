@@ -13,11 +13,10 @@ function localRuleCheck({ heart_rate, breathing_rate, skin_temp }) {
     is_anomaly,
     anomaly_reason: is_anomaly ? anomalyReasons.join(' | ') : null,
     calculated_shift_steps: 0,
-    source: 'mock',
   };
 }
 
-export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLevel, batteryCharging, rfidWorkerId, isPoweredOn, bandRemoved, forceConnectionStatus) {
+export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLevel, batteryCharging, rfidWorkerId, isPoweredOn, bandRemoved) {
   const [serverResponse, setServerResponse] = useState({
     is_anomaly: false,
     anomaly_reason: null,
@@ -48,12 +47,6 @@ export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLev
   const sync = useCallback(async () => {
     if (!poweredRef.current) {
       setConnectionStatus('disconnected');
-      return;
-    }
-
-    if (forceConnectionStatus && forceConnectionStatus !== 'auto') {
-      setConnectionStatus(forceConnectionStatus);
-      setIsSyncing(false);
       return;
     }
 
@@ -94,47 +87,34 @@ export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLev
     try {
       const db = getDb();
       if (db) {
-        await addDoc(collection(db, 'telemetry'), {
+        const docRef = await addDoc(collection(db, 'telemetry'), {
           ...payload,
           created_at: serverTimestamp(),
         });
+        const mockResult = localRuleCheck(vitalsRef.current);
+        setServerResponse({
+          ...mockResult,
+          is_anomaly: payload.is_anomaly,
+          anomaly_reason: payload.anomaly_reason,
+          source: 'firestore',
+          doc_id: docRef.id,
+        });
+        setLastSyncAt(new Date());
+        setConnectionStatus('connected');
+        setIsSyncing(false);
+      } else {
+        throw new Error('Firestore not initialized');
       }
     } catch (firestoreErr) {
-      // Firestore not configured yet - data still sent via REST API
+      console.error('Firestore write failed:', firestoreErr.message);
+      const mockResult = localRuleCheck(vitalsRef.current);
+      setServerResponse({
+        ...mockResult,
+        source: 'mock',
+      });
+      setLastSyncAt(new Date());
     }
-
-    try {
-      if (apiUrl) {
-        const res = await fetch(`${apiUrl}/api/v1/telemetry`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(4000),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setServerResponse({ ...data, source: 'server' });
-          setLastSyncAt(new Date());
-          setConnectionStatus('connected');
-          setIsSyncing(false);
-          return;
-        }
-      }
-    } catch {
-      // Fallback to mock
-    }
-
-    const mockResult = localRuleCheck(vitalsRef.current);
-    setServerResponse({
-      ...mockResult,
-      source: 'mock',
-      calculated_shift_steps: 0,
-    });
-    setLastSyncAt(new Date());
-    setConnectionStatus('connected');
-    setIsSyncing(false);
-  }, [apiUrl, minerId, forceConnectionStatus]);
+  }, [minerId]);
 
   useEffect(() => {
     if (!isPoweredOn) {
@@ -142,13 +122,11 @@ export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLev
       return;
     }
     sync();
-    if (!forceConnectionStatus || forceConnectionStatus === 'auto') {
-      intervalRef.current = setInterval(sync, POLL_INTERVAL_MS);
-    }
+    intervalRef.current = setInterval(sync, POLL_INTERVAL_MS);
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (intervalRef.current) clearInterval(intervalRef);
     };
-  }, [sync, isPoweredOn, forceConnectionStatus]);
+  }, [sync, isPoweredOn]);
 
   return { serverResponse, isSyncing, lastSyncAt, connectionStatus };
 }
