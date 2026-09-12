@@ -27,6 +27,15 @@ export default function WristbandModel3D({
 }) {
   const mountRef = useRef(null);
   const rotControlRef = useRef({ setTargetAngle: null });
+  const powerRef = useRef(powerOn);
+  const connectionRef = useRef(connectionStatus);
+  const anomalyRef = useRef(isAnomaly);
+  const bandRemovedRef = useRef(bandRemoved);
+
+  useEffect(() => { powerRef.current = powerOn; }, [powerOn]);
+  useEffect(() => { connectionRef.current = connectionStatus; }, [connectionStatus]);
+  useEffect(() => { anomalyRef.current = isAnomaly; }, [isAnomaly]);
+  useEffect(() => { bandRemovedRef.current = bandRemoved; }, [bandRemoved]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -326,9 +335,14 @@ export default function WristbandModel3D({
       group.rotation.y = angle;
       group.rotation.x = currentRotX;
 
-      const statusHex = getAiStatusColor(powerOn, connectionStatus, isAnomaly, bandRemoved);
+      const pOn = powerRef.current;
+      const conn = connectionRef.current;
+      const anomaly = anomalyRef.current;
+      const bandOff = bandRemovedRef.current;
 
-      const shouldBlink = powerOn && (connectionStatus === 'connecting' || bandRemoved);
+      const statusHex = getAiStatusColor(pOn, conn, anomaly, bandOff);
+
+      const shouldBlink = pOn && (conn === 'connecting' || bandOff);
       const blinkOn = shouldBlink ? (Math.sin(pulseTime * 4) > 0) : true;
 
       aiStatusMat.color.setHex(statusHex);
@@ -337,10 +351,10 @@ export default function WristbandModel3D({
       aiPointLight.color.setHex(statusHex);
       aiPointLight.intensity = blinkOn ? (0.35 + (0.7 + Math.sin(pulseTime * 3) * 0.3) * 0.25) : 0;
 
-      aiCore.visible = powerOn;
-      aiRing.visible = powerOn;
-      aiHalo.visible = powerOn;
-      aiPointLight.visible = powerOn;
+      aiCore.visible = pOn;
+      aiRing.visible = pOn;
+      aiHalo.visible = pOn;
+      aiPointLight.visible = pOn;
 
       aiRing.scale.setScalar(1 + Math.sin(pulseTime * 2) * 0.08);
       aiHalo.scale.setScalar(1 + Math.cos(pulseTime * 2.3) * 0.1);
@@ -367,7 +381,7 @@ export default function WristbandModel3D({
       mount.removeChild(renderer.domElement);
       renderer.dispose();
     };
-  }, [connectionStatus, isAnomaly, bandRemoved, powerOn]);
+  }, []);
 
   const connColor = connectionStatus === 'connected' ? '#0088ff' : '#555555';
   const connLabel = connectionStatus === 'connected' ? 'AI LINK ACTIVE' : 'AI LINK IDLE';
