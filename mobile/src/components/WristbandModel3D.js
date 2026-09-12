@@ -8,7 +8,7 @@ function getAiStatusColor(powerOn, connectionStatus, isAnomaly, bandRemoved) {
   if (!powerOn) return 0x000000;
   if (bandRemoved) return 0xaa00ff;
   if (isAnomaly) return 0xff2222;
-  if (connectionStatus === 'connected') return 0x0088ff;
+  if (connectionStatus === 'connected') return 0x00ff88;
   if (connectionStatus === 'connecting') return 0x0088ff;
   return 0x000000;
 }
@@ -383,7 +383,7 @@ export default function WristbandModel3D({
     };
   }, []);
 
-  const connColor = connectionStatus === 'connected' ? '#0088ff' : '#555555';
+  const connColor = connectionStatus === 'connected' ? '#00ff88' : '#555555';
   const connLabel = connectionStatus === 'connected' ? 'AI LINK ACTIVE' : 'AI LINK IDLE';
 
   return (

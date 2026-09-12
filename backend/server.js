@@ -44,6 +44,16 @@ await db.exec(`
   )
 `);
 
+await db.exec(`
+  CREATE TABLE IF NOT EXISTS worker_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    miner_id TEXT,
+    session_start TEXT DEFAULT CURRENT_TIMESTAMP,
+    session_end TEXT,
+    is_active INTEGER DEFAULT 0
+  )
+`);
+
 console.log('🗄️  SQLite database ready:', DB_PATH);
 
 app.get('/health', (req, res) => {
@@ -61,20 +71,32 @@ app.get('/api/v1/telemetry/:minerId', async (req, res) => {
 app.post('/api/v1/telemetry', async (req, res) => {
   const payload = req.body;
 
-  console.log('📡 Telemetry received:', {
-    miner_id: payload.miner_id,
-    heart_rate: payload.heart_rate,
-    skin_temp: payload.skin_temp,
-    is_anomaly: payload.is_anomaly,
+  console.log('📡 Telemetry received from', payload.miner_id, {
+    hr: payload.heart_rate,
+    temp: payload.skin_temp,
+    anomaly: payload.is_anomaly,
     band_removed: payload.band_removed,
+    connection: payload.connection_status,
   });
 
   if (payload.is_anomaly) {
-    console.log(`🔴 ALERT: ${payload.anomaly_reason}`);
+    console.log(`🔴 ANOMALY ALERT [${payload.miner_id}]: ${payload.anomaly_reason}`);
   }
 
   if (payload.band_removed) {
-    console.log(`⚪ Band removed — vitals unavailable`);
+    console.log(`⚪ BAND REMOVED [${payload.miner_id}] — vitals unavailable`);
+  }
+
+  if (payload.connection_status === 'connecting') {
+    console.log(`🔵 WORKER [${payload.miner_id}] CONNECTING...`);
+    await db.run(
+      'INSERT OR REPLACE INTO worker_sessions (miner_id, is_active) VALUES (?, 1)',
+      [payload.miner_id]
+    );
+  }
+
+  if (payload.connection_status === 'connected') {
+    console.log(`✅ WORKER [${payload.miner_id}] CONNECTED — vitals nominal`);
   }
 
   await db.run(
@@ -109,7 +131,7 @@ app.post('/api/v1/telemetry', async (req, res) => {
     miner_id: payload.miner_id,
     is_anomaly: payload.is_anomaly,
     anomaly_reason: payload.anomaly_reason,
-    calculated_shift_steps: 0,
+    calculated_shift_steps: payload.total_watch_steps || 0,
     source: 'server',
     processed_at: new Date().toISOString(),
   });
