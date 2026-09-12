@@ -8,7 +8,8 @@ function getAiStatusColor(powerOn, connectionStatus, isAnomaly, bandRemoved) {
   if (!powerOn) return 0x000000;
   if (bandRemoved) return 0xaa00ff;
   if (isAnomaly) return 0xff2222;
-  if (connectionStatus === 'connected') return 0x00ff88;
+  if (connectionStatus === 'connected') return 0x0088ff;
+  if (connectionStatus === 'connecting') return 0x0088ff;
   return 0x000000;
 }
 
@@ -254,8 +255,8 @@ export default function WristbandModel3D({
       group.add(grooveBottom);
     }
 
-    const aiStatusMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
-    const aiGlowMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.25 });
+    const aiStatusMat = new THREE.MeshBasicMaterial({ color: 0x0088ff });
+    const aiGlowMat = new THREE.MeshBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.25 });
 
     const aiCoreGeo = new THREE.CircleGeometry(0.055, 32);
     const aiCore = new THREE.Mesh(aiCoreGeo, aiStatusMat);
@@ -272,7 +273,7 @@ export default function WristbandModel3D({
     aiHalo.position.set(0.6, 0.48, 0.19);
     group.add(aiHalo);
 
-    const aiPointLight = new THREE.PointLight(0x00ff88, 0.4, 0.6);
+    const aiPointLight = new THREE.PointLight(0x0088ff, 0.4, 0.6);
     aiPointLight.position.set(0.6, 0.48, 0.22);
     group.add(aiPointLight);
 
@@ -327,7 +328,7 @@ export default function WristbandModel3D({
 
       const statusHex = getAiStatusColor(powerOn, connectionStatus, isAnomaly, bandRemoved);
 
-      const shouldBlink = powerOn && bandRemoved;
+      const shouldBlink = powerOn && (connectionStatus === 'connecting' || bandRemoved);
       const blinkOn = shouldBlink ? (Math.sin(pulseTime * 4) > 0) : true;
 
       aiStatusMat.color.setHex(statusHex);
@@ -368,7 +369,7 @@ export default function WristbandModel3D({
     };
   }, [connectionStatus, isAnomaly, bandRemoved, powerOn]);
 
-  const connColor = connectionStatus === 'connected' ? '#00ff88' : '#555555';
+  const connColor = connectionStatus === 'connected' ? '#0088ff' : '#555555';
   const connLabel = connectionStatus === 'connected' ? 'AI LINK ACTIVE' : 'AI LINK IDLE';
 
   return (

@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getDb } from '../services/firebase';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -87,6 +89,18 @@ export function useTelemetrySync(vitals, totalSteps, minerId, apiUrl, batteryLev
     } else if (vitalsRef.current.heart_rate > 130 || vitalsRef.current.skin_temp > 38.5) {
       payload.is_anomaly = true;
       payload.anomaly_reason = localRuleCheck(vitalsRef.current).anomaly_reason;
+    }
+
+    try {
+      const db = getDb();
+      if (db) {
+        await addDoc(collection(db, 'telemetry'), {
+          ...payload,
+          created_at: serverTimestamp(),
+        });
+      }
+    } catch (firestoreErr) {
+      // Firestore not configured yet - data still sent via REST API
     }
 
     try {
